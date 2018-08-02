@@ -97,34 +97,48 @@ float** GammaToneFeature(short* data, int data_len, float* factors, int* ifac, i
     int nfft = (int)pow(2, (int)(ceil(log(frame_length) / log(2))));
 
     int samples_len = data_len;
-    float* samples = new float[samples_len];
+    float samples[samples_len];
     samples[0] = data[0]/32768.0f;
     for(int i = 0; i < samples_len-1;i++)
-        samples[i+1] = data[i+1] - pre_emp* data[i];
+        samples[i+1] = (data[i+1] - (pre_emp* data[i]))/32768.0f;
 
-    int hamming_len = (samples_len+1)/2;
-    float win[hamming_len];
+    int hamming_len = samples_len;
+    double win[hamming_len];
+
     for( int i=0; i<hamming_len; ++i )
     {
-        win[i] = 1.0f * (float)(0.54 - 0.46*cos((3.141592653589793)*i/(frame_length-1.0)));
-        win[frame_length-1-i] = win[i];
+        win[i] = ( 0.54 - 0.46 * cos (2.0*3.141592653589793*(double)i/(double)(samples_len-1)));
     }
 
     int frame_num = 1+(int)(floor((samples_len-frame_length)/frame_interval));
     int start_index;
-    float tmp_data[nfft];
-    float zeros[nfft-frame_length];
-    memset(zeros,0,sizeof(float)*(nfft-frame_length));
+    float* tmp_data = new float[nfft];
+
+
     float** res = new float*[frame_num];
+    int j,k;
+    int gt_len = nfft/2;
+    int end_index;
+    float real,img;
 
     for(int i = 0; i < frame_num; i++)
     {
-        start_index = i*frame_length;
-        memcpy(tmp_data,samples+start_index, sizeof(float)*frame_length);
-        memcpy(tmp_data+frame_length,zeros,sizeof(float)*(nfft-frame_length));
+        end_index = frame_length+i*frame_interval;
+        res[i] = new float[gt_len];
+        for(j = i*frame_interval;j < end_index; j++)
+            tmp_data[j] =(float)(samples[j]*win[j]);
+        memset(tmp_data+frame_length,0,sizeof(float)*(nfft-frame_length));
         drftf1(nfft, tmp_data, factors,factors+nfft,ifac);
-        res[i] = tmp_data;
+        tmp_data[0] = 0;
+
+        for(k =0; k < gt_len;k++){
+            real = tmp_data[k*2+1];
+            img = tmp_data[k*2+2];
+           res[i][k+1] = sqrt(real*real+img*img);
+        }
     }
+
+
 
     return res;
 }
@@ -134,11 +148,13 @@ float* FFTFactors(int n){
     int ifc_dim = n+15;
 
     float factors[output_dim];
+    memset(factors,0,sizeof(float)*output_dim);
     int ifa[ifc_dim];
 
     drfti1(n,factors+n,ifa);
 
-    float ifac[ifc_dim+output_dim];
+
+    float* ifac = new float[ifc_dim+output_dim];
     for(int i = 0; i < output_dim; i++)
         ifac[i] = factors[i];
     for(int i = 0; i <ifc_dim; i++)
@@ -149,7 +165,25 @@ float* FFTFactors(int n){
 
 int main() {
     std::cout << "Hello, World!" << std::endl;
-    float** res = GammaToneFilters(512,16000,64,0.5,50,8000);
+    int n = 512;
+    float** filters = GammaToneFilters(n,16000,64,0.5,50,8000);
+
+    float* factors_raw = FFTFactors(n);
+    float factors[4*n+ 15];
+    int output_dim = 4*n + 15;
+    for(int i = 0; i < output_dim; i++){
+        factors[i] = factors_raw[i];
+    }
+    int ifac[n+15];
+    for(int i = 0; i < n+15; i++)
+        ifac[i] = (int)factors_raw[output_dim+i];
+
+    short data[400];
+    for (int i = 0; i < 400;i++)
+        data[i] = (short)i;
+
+    float** res = GammaToneFeature(data,400,factors,ifac,400,160,filters);
+
     return 0;
 }
 
